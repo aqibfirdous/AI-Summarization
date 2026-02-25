@@ -1,46 +1,48 @@
 from transformers import pipeline
 
 
-def chunk_text(text, max_tokens=1024):
+_SUMMARIZER = None
+
+
+def _get_summarizer():
+    global _SUMMARIZER
+    if _SUMMARIZER is None:
+        _SUMMARIZER = pipeline("summarization", model="sshleifer/distilbart-cnn-6-6")
+    return _SUMMARIZER
+
+
+def chunk_text(text, max_words=400):
     """
-    Splits text into chunks of roughly max_tokens words.
+    Splits text into chunks of roughly max_words words.
 
     Parameters:
       text (str): The full text to split.
-      max_tokens (int): Maximum number of words per chunk.
+      max_words (int): Maximum number of words per chunk.
 
     Returns:
       list: List of text chunks.
     """
     words = text.split()
+    if not words:
+        return []
+
     chunks = []
-    current_chunk = []
-    current_length = 0
-    for word in words:
-        # Assume each word roughly equals one token.
-        if current_length + 1 > max_tokens:
-            chunks.append(" ".join(current_chunk))
-            current_chunk = [word]
-            current_length = 1
-        else:
-            current_chunk.append(word)
-            current_length += 1
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
+    for idx in range(0, len(words), max_words):
+        chunks.append(" ".join(words[idx: idx + max_words]))
     return chunks
 
 
-def summarize_long_text(text, max_tokens=1024, max_length=300, min_length=150, do_double_pass=True):
+def summarize_long_text(text, max_words=400, max_length=220, min_length=60, do_double_pass=True):
     """
     Summarize long text by:
       1. Splitting it into chunks,
-      2. Summarizing each chunk with a higher max and min length,
+      2. Summarizing each chunk,
       3. Combining the chunk summaries,
-      4. Optionally re-summarizing the combined summary for a more detailed final output.
+      4. Optionally re-summarizing the combined summary.
 
     Parameters:
       text (str): The full text to summarize.
-      max_tokens (int): Maximum words per chunk.
+      max_words (int): Maximum words per chunk.
       max_length (int): Maximum length for each summary.
       min_length (int): Minimum length for each summary.
       do_double_pass (bool): If True, run a second summarization on the combined summary.
@@ -48,30 +50,45 @@ def summarize_long_text(text, max_tokens=1024, max_length=300, min_length=150, d
     Returns:
       str: The final summary.
     """
-    # Use a smaller summarization model (or choose one that fits your needs)
-    summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-6-6")
+    summarizer = _get_summarizer()
 
-    # Split the input text into chunks
-    text_chunks = chunk_text(text, max_tokens=max_tokens)
+    text_chunks = chunk_text(text, max_words=max_words)
+    if not text_chunks:
+        return ""
 
     chunk_summaries = []
     for i, chunk in enumerate(text_chunks):
         try:
-            summary = summarizer(chunk, max_length=max_length, min_length=min_length, do_sample=False)
-            chunk_summaries.append(summary[0]['summary_text'])
+            chunk_words = max(1, len(chunk.split()))
+            dynamic_max = min(max_length, max(40, chunk_words // 2))
+            dynamic_min = min(min_length, max(20, dynamic_max // 3))
+
+            summary = summarizer(
+                chunk,
+                max_length=dynamic_max,
+                min_length=dynamic_min,
+                do_sample=False,
+                truncation=True,
+            )
+            chunk_summaries.append(summary[0]["summary_text"])
         except Exception as e:
             print(f"Error summarizing chunk {i}: {e}")
 
-    combined_summary = " ".join(chunk_summaries)
+    combined_summary = " ".join(chunk_summaries).strip()
+    if not combined_summary:
+        return ""
 
-    # Optional double-pass summarization for more detail and coherence
-    if do_double_pass and len(combined_summary.split()) > min_length:
+    if do_double_pass and len(chunk_summaries) > 1:
         try:
-            final_summary = summarizer(combined_summary, max_length=max_length, min_length=min_length, do_sample=False)
-            return final_summary[0]['summary_text']
+            final_summary = summarizer(
+                combined_summary,
+                max_length=max_length,
+                min_length=min_length,
+                do_sample=False,
+                truncation=True,
+            )
+            return final_summary[0]["summary_text"]
         except Exception as e:
             print("Error in double pass summarization:", e)
-            # Return the combined summary if the second pass fails
-            return combined_summary
-    else:
-        return combined_summary
+
+    return combined_summary
