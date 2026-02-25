@@ -3,6 +3,7 @@ from modules.text_extraction import extract_text_from_pdf
 from modules.summarization import summarize_long_text
 from modules.tts import generate_audio
 from modules.video_creation_ffmpeg_python import create_video_ffmpeg_python
+from modules.filename_utils import jd_number
 
 
 def process_job_description(file_path, background_image, video_duration):
@@ -31,8 +32,12 @@ def process_job_description(file_path, background_image, video_duration):
 
     # 4. Create a video from the generated audio and background image.
     video_path = f"output_{base_name}.mp4"
-    video_path = create_video_ffmpeg_python(background_image, audio_path, output_path=video_path,
-                                            duration=video_duration)
+    video_path = create_video_ffmpeg_python(
+        background_image,
+        audio_path,
+        output_path=video_path,
+        max_duration=video_duration,
+    )
     if video_path:
         print(f"Video created successfully: {video_path}\n")
     else:
@@ -41,24 +46,24 @@ def process_job_description(file_path, background_image, video_duration):
 
 def main():
     # Folder containing the job description PDFs.
-    # If your folder name has a space (e.g., "job descriptions"), update accordingly.
     jd_folder = os.path.join("docs", "job_descriptions")
     background_image = os.path.join("docs", "ima.jpeg")
 
-    # Define video durations (in seconds) for each JD.
+    # Define max durations (in seconds) for each JD number.
     video_durations = {
-        "jd1.pdf": 180,  # 3 minutes
-        "jd2.pdf": 150,  # 2.5 minutes
-        "jd3.pdf": 180,  # 3 minutes
-        "jd4.pdf": 240,  # 4 minutes
-        "jd5.pdf": 300  # 5 minutes
+        1: 180,  # 3 minutes
+        2: 150,  # 2.5 minutes
+        3: 180,  # 3 minutes
+        4: 240,  # 4 minutes
+        5: 300,  # 5 minutes
     }
 
     # Process each job description file.
-    for filename in os.listdir(jd_folder):
+    for filename in sorted(os.listdir(jd_folder)):
         if filename.lower().endswith(".pdf"):
             file_path = os.path.join(jd_folder, filename)
-            duration = video_durations.get(filename, 180)  # Default to 3 minutes if not specified.
+            jd_num = jd_number(filename)
+            duration = video_durations.get(jd_num, 180)  # Default to 3 minutes if not specified.
             process_job_description(file_path, background_image, duration)
 
 
